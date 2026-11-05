@@ -10,7 +10,7 @@ import sys
 import edge_tts
 import pygame
 
-# Initialize audio mixer
+# Initialize pygame audio mixer for in-memory playback
 pygame.mixer.init()
 
 VOICES = {
@@ -22,6 +22,7 @@ VOICES = {
 }
 
 def detect_language(text: str) -> str:
+    """Detect whether input contains Tamil characters."""
     for char in text:
         if "\u0b80" <= char <= "\u0bff":
             return "ta"
@@ -31,13 +32,14 @@ async def play_live_speech(text: str, voice_override: str = None):
     lang = detect_language(text)
     voice_name = voice_override or VOICES.get(lang, VOICES["ta"])
     
+    # Fast, natural, conversational cadence
     rate = "+8%"
     pitch = "+5Hz" if lang == "ta" else "+0Hz"
     
-    print(f"\n[Voice: {voice_name}] Streaming audio...")
+    print(f"\n[Voice: {voice_name}] Synthesizing live in memory...")
     communicate = edge_tts.Communicate(text, voice_name, rate=rate, pitch=pitch)
     
-    # Collect audio stream directly into RAM (zero disk writes)
+    # Collect audio stream directly into RAM buffer (zero disk writes)
     audio_buffer = bytearray()
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
@@ -59,7 +61,7 @@ def main():
     print("=" * 60)
     print("Audio plays LIVE through speakers (no files saved to disk).")
     print("Type any text below and press [Enter].")
-    print("Type 'exit' to quit.\n")
+    print("Type 'exit' or 'q' to quit.\n")
     
     while True:
         try:
