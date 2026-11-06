@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chennai Mobility AI - Terminal Voice Workbench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: #0b0f19;
+      color: #00ff66;
+      font-family: 'Fira Code', 'Courier New', monospace;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .terminal-window {
+      background-color: #070a12;
+      border: 1px solid #1f293d;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8), 0 0 15px rgba(0, 255, 102, 0.1);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      max-width: 1000px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .terminal-header {
+      background-color: #0d1322;
+      padding: 10px 15px;
+      border-bottom: 1px solid #1f293d;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .window-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot-red { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #27c93f; }
+    .header-title {
+      color: #94a3b8;
+      font-size: 13px;
+      margin-left: 10px;
+    }
+    .header-status {
+      font-size: 12px;
+      color: #38bdf8;
+    }
+    .terminal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .terminal-line {
+      margin-bottom: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .text-dim { color: #64748b; }
+    .text-cyan { color: #38bdf8; }
+    .text-yellow { color: #facc15; }
+    .text-magenta { color: #f472b6; }
+    .text-red { color: #f87171; }
+    .text-green { color: #4ade80; }
+    .text-white { color: #f8fafc; }
+    
+    .terminal-controls {
+      background-color: #0d1322;
+      padding: 15px;
+      border-top: 1px solid #1f293d;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .mic-button {
+      background: #064e3b;
+      color: #34d399;
+      border: 1px solid #059669;
+      padding: 10px 20px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .mic-button:hover {
+      background: #047857;
+      color: #ecfdf5;
+    }
+    .mic-button.recording {
+      background: #7f1d1d;
+      color: #fca5a5;
+      border-color: #ef4444;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .lang-select {
+      background: #111827;
+      border: 1px solid #374151;
+      color: #e5e7eb;
+      font-family: inherit;
+      padding: 9px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      outline: none;
+    }
+    .terminal-input-wrapper {
+      display: flex;
+      flex: 1;
+      position: relative;
+    }
+    .input-prompt {
+      position: absolute;
+      left: 10px;
+      top: 9px;
+      color: #38bdf8;
+      font-weight: bold;
+    }
+    .terminal-input {
+      width: 100%;
+      background: #111827;
+      border: 1px solid #374151;
+      color: #f9fafb;
+      font-family: inherit;
+      padding: 9px 12px 9px 30px;
+      border-radius: 4px;
+      font-size: 13px;
+      outline: none;
+    }
+    .terminal-input:focus {
+      border-color: #38bdf8;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: bold;
+      margin-right: 6px;
+    }
+    .badge-user { background: #1e3a8a; color: #93c5fd; }
+    .badge-ai { background: #064e3b; color: #6ee7b7; }
+    .badge-sys { background: #374151; color: #d1d5db; }
+  </style>
+</head>
+<body>
+
+<div class="terminal-window">
+  <div class="terminal-header">
+    <div class="header-left">
+      <span class="window-dot dot-red"></span>
+      <span class="window-dot dot-yellow"></span>
+      <span class="window-dot dot-green"></span>
+      <span class="header-title">chennai-mobility-ai@voice-terminal: ~</span>
+    </div>
+    <div class="header-status" id="connection-status">● AUDIO ENGINE READY (HEADSET: ENCO AIR 5)</div>
+  </div>
+
+  <div class="terminal-body" id="terminal-body">
+    <div class="terminal-line text-cyan">======================================================================</div>
+    <div class="terminal-line text-green">  CHENNAI MOBILITY AI — TERMINAL VOICE WORKBENCH v1.0.0</div>
+    <div class="terminal-line text-dim">  Connected to SQLite Transit DB (MTC, CMRL, Suburban) | Mode: Voice + Terminal</div>
+    <div class="terminal-line text-cyan">======================================================================</div>
+    <div class="terminal-line text-dim">
+[INFO] Speech-to-Text: Ready via Web Speech API (Bluetooth Enco Air 5 Mic)
+[INFO] Text-to-Speech: Ready via SpeechSynthesis (Bluetooth Enco Air 5 Earphones)
+[INFO] Sample Spoken Phrases:
+       • "How do I get from Porur to Guindy by bus?"
+       • "Porur lendhu Guindy poganum. Enna bus edukkanum?"
+       • "போரூரிலிருந்து கிண்டிக்கு போக என்ன பஸ் இருக்கு?"
+       • "Tambaram to Guindy" / "Tambaram to T Nagar"
+----------------------------------------------------------------------
+    </div>
+  </div>
+
+  <div class="terminal-controls">
+    <button class="mic-button" id="mic-btn" onclick="toggleMic()">
+      <span id="mic-icon">🎤</span> <span id="mic-label">CLICK & SPEAK</span>
+    </button>
+    <select class="lang-select" id="lang-select" onchange="updateLanguage()">
+      <option value="en-IN">English (India)</option>
+      <option value="ta-IN">Tamil (தமிழ்)</option>
+    </select>
+    <div class="terminal-input-wrapper">
+      <span class="input-prompt">&gt;</span>
+      <input type="text" class="terminal-input" id="cmd-input" placeholder="Type query or use mic button..." onkeydown="handleKey(event)" />
+    </div>
+  </div>
+</div>
+
+<script>
+  const terminalBody = document.getElementById('terminal-body');
+  const micBtn = document.getElementById('mic-btn');
+  const micLabel = document.getElementById('mic-label');
+  const langSelect = document.getElementById('lang-select');
+  const cmdInput = document.getElementById('cmd-input');
+  const statusEl = document.getElementById('connection-status');
+
+  let recognition = null;
+  let isRecording = false;
+
+  // Initialize Speech Recognition
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = langSelect.value;
+
+    recognition.onstart = function() {
+      isRecording = true;
+      micBtn.classList.add('recording');
+      micLabel.textContent = 'LISTENING...';
+      statusEl.textContent = '● LISTENING TO MIC (ENCO AIR 5)...';
+      statusEl.style.color = '#f87171';
+      appendLog('badge-sys', 'MIC ACTIVE', 'Listening to microphone input...', 'text-dim');
+    };
+
+    recognition.onresult = function(event) {
+      const transcript = event.results[0][0].transcript;
+      appendLog('badge-user', 'VOICE INPUT', transcript, 'text-yellow');
+      processQuery(transcript);
+    };
+
+    recognition.onerror = function(event) {
+      appendLog('badge-sys', 'MIC ERROR', event.error, 'text-red');
+      resetMicUI();
+    };
+
+    recognition.onend = function() {
+      resetMicUI();
+    };
+  } else {
+    appendLog('badge-sys', 'WARN', 'SpeechRecognition not supported in this browser. Please use Chrome/Edge.', 'text-red');
+  }
+
+  function resetMicUI() {
+    isRecording = false;
+    micBtn.classList.remove('recording');
+    micLabel.textContent = 'CLICK & SPEAK';
+    statusEl.textContent = '● AUDIO ENGINE READY (HEADSET: ENCO AIR 5)';
+    statusEl.style.color = '#38bdf8';
+  }
+
+  function toggleMic() {
+    if (!recognition) {
+      alert('Web Speech API is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+      return;
+    }
+    if (isRecording) {
+      recognition.stop();
+    } else {
+      recognition.lang = langSelect.value;
+      recognition.start();
+    }
+  }
+
+  function updateLanguage() {
+    if (recognition) {
+      recognition.lang = langSelect.value;
+    }
+    appendLog('badge-sys', 'CONFIG', 'Language set to: ' + langSelect.options[langSelect.selectedIndex].text, 'text-dim');
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter') {
+      const val = cmdInput.value.trim();
+      if (!val) return;
+      cmdInput.value = '';
+      appendLog('badge-user', 'KEYBOARD INPUT', val, 'text-yellow');
+      processQuery(val);
+    }
+  }
+
+  function appendLog(badgeClass, badgeText, content, colorClass = '') {
+    const line = document.createElement('div');
+    line.className = 'terminal-line ' + colorClass;
+    line.innerHTML = `<span class="badge ${badgeClass}">${badgeText}</span> ${escapeHtml(content)}`;
+    terminalBody.appendChild(line);
+    terminalBody.scrollTop = terminalBody.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Speak into headset using Web SpeechSynthesis with audio element fallback
+  function speakResponse(text, lang) {
+    appendLog('badge-sys', 'AUDIO', `Playing synthesized voice [${lang.toUpperCase()}] to audio output...`, 'text-cyan');
+    
+    // Fallback/direct Google TTS audio stream for perfect Tamil & English pronunciation
+    const isTamil = lang.startsWith('ta');
+    const ttsLang = isTamil ? 'ta' : 'en-IN';
+    const cleanText = text.replace(/[\n\r]+/g, ' ').substring(0, 200); // chunk for audio tag
+    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURI(cleanText)}&tl=${ttsLang}&client=tw-ob`;
+
+    const audio = new Audio(audioUrl);
+    statusEl.textContent = '● PLAYING TO ENCO AIR 5...';
+    statusEl.style.color = '#4ade80';
+
+    audio.onended = () => {
+      statusEl.textContent = '● AUDIO ENGINE READY (HEADSET: ENCO AIR 5)';
+      statusEl.style.color = '#38bdf8';
+    };
+
+    audio.onerror = () => {
+      // Fallback to browser SpeechSynthesis if audio tag gets blocked
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = isTamil ? 'ta-IN' : 'en-IN';
+        utterance.rate = 0.95;
+        
+        const voices = window.speechSynthesis.getVoices();
+        const matchingVoice = voices.find(v => v.lang.includes(isTamil ? 'ta' : 'en'));
+        if (matchingVoice) utterance.voice = matchingVoice;
+
+        utterance.onend = () => {
+          statusEl.textContent = '● AUDIO ENGINE READY (HEADSET: ENCO AIR 5)';
+          statusEl.style.color = '#38bdf8';
+        };
+        window.speechSynthesis.speak(utterance);
+      }
+    };
+
+    // Try playing the direct audio stream first
+    audio.play().catch(err => {
+      console.warn("Audio tag autoplay blocked, falling back to window.speechSynthesis", err);
+      audio.onerror();
+    });
+  }
+
+  async function processQuery(queryText) {
+    const selectedLang = langSelect.value.startsWith('ta') ? 'ta' : 'en';
+
+    appendLog('badge-sys', 'QUERYING', 'Resolving stop names and querying chennai.sqlite...', 'text-dim');
+
+    try {
+      const resp = await fetch('/api/mobility/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: queryText, language: selectedLang })
+      });
+
+      if (!resp.ok) {
+        throw new Error('Server returned HTTP ' + resp.status);
+      }
+
+      const data = await resp.json();
+
+      // Display Structured Route Details
+      if (data.status === 'OK' && data.options && data.options.length > 0) {
+        let details = `\n-------------------------------------------------------\n          STRUCTURED ROUTE DETAILS               \n-------------------------------------------------------\n`;
+        data.options.forEach((opt, idx) => {
+          const legsStr = opt.legs.map(l => `Bus ${l.route} (${l.from_stop.name} -> ${l.to_stop.name}, ${l.stops_count} stops)`).join(' -> ');
+          details += `Option ${idx + 1} [${opt.ranking_basis}]: ${legsStr}\n`;
+        });
+        if (data.arrival_estimate && data.arrival_estimate.available) {
+          const etaText = (data.language && data.language.startsWith('ta')) ? data.arrival_estimate.text_ta : data.arrival_estimate.text_en;
+          details += `Next Bus Arrival   : ${etaText}\n`;
+        }
+        details += `Estimated Distance : ${data.options[0].distance.value_km || 'N/A'} km (${data.options[0].distance.basis})\n`;
+        details += `Fare Estimate      : ${data.options[0].fare.status} (${data.options[0].fare.reason || '₹' + data.options[0].fare.amount_inr})\n`;
+        details += `-------------------------------------------------------`;
+        appendLog('badge-sys', 'TRANSIT ENGINE', details, 'text-cyan');
+      }
+
+      // Display and Speak Output in the matching language
+      const langBadge = data.language.toUpperCase();
+      appendLog('badge-ai', `ASSISTANT [${langBadge}]`, `"${data.speech_text}"`, 'text-green');
+
+      if (data.follow_up_question) {
+        appendLog('badge-ai', 'FOLLOW-UP', `"${data.follow_up_question}"`, 'text-magenta');
+      }
+
+      // Speak to Enco Air 5 Bluetooth earbuds
+      speakResponse(data.speech_text + (data.follow_up_question ? ' ' + data.follow_up_question : ''), data.language);
+
+    } catch (err) {
+      appendLog('badge-sys', 'ERROR', 'Failed to connect to backend: ' + err.message, 'text-red');
+    }
+  }
+
+  // Pre-load synthesis voices
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+  }
+</script>
+
+</body>
+</html>
+

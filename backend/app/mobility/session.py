@@ -37,3 +37,4 @@ class SessionManager:
         expired = [sid for sid, sess in self.sessions.items() if sess.is_expired()]
         for sid in expired:
             del self.sessions[sid]
+

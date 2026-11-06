@@ -150,3 +150,4 @@ class AdvisoryEnricher:
             logger.error("Error matching advisories: %s", e)
 
         return matched
+

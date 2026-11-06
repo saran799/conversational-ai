@@ -164,3 +164,4 @@ class DistanceEnricher:
                 conn.commit()
         except Exception:
             pass
+

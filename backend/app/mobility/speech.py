@@ -58,6 +58,8 @@ class SpeechFormatter:
         fare_status: Optional[str] = "UNKNOWN",
         fare_amount: Optional[float] = None,
         advisories: Optional[List[str]] = None,
+        arrival_estimate: Optional[Dict[str, Any]] = None,
+        train_metro_alternative: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Produce spoken speech_text and follow-up question."""
         lang = "ta" if language.lower().startswith("ta") else "en"
@@ -99,22 +101,37 @@ class SpeechFormatter:
                 destination=dest_name,
             ))
 
-        # 2. Fare statement
+        # 2. Arrival estimate / Headway at boarding spot
+        if arrival_estimate and arrival_estimate.get("available"):
+            eta_str = arrival_estimate.get("text_ta") if lang == "ta" else arrival_estimate.get("text_en")
+            if eta_str:
+                sentences.append(eta_str)
+
+        # 3. Fare statement
         if fare_status == "AVAILABLE" and fare_amount is not None:
-            sentences.append(msgs.get("fare_known", "Fare is {amount} rupees.").format(amount=int(fare_amount)))
+            if lang == "ta":
+                sentences.append(msgs.get("fare_known", "தோராயமான கட்டணம் {amount} ரூபாய்.").format(amount=int(fare_amount)))
+            else:
+                sentences.append(msgs.get("fare_known", "The estimated fare is {amount} rupees.").format(amount=int(fare_amount)))
         else:
             sentences.append(msgs.get("fare_unknown", "Fare is not confirmed."))
 
-        # 3. Advisory statement
+        # 4. Advisory statement
         if advisories and len(advisories) > 0:
             sentences.append(msgs.get("advisory_alert", "Notice: {summary}").format(summary=advisories[0]))
         else:
             sentences.append(msgs.get("advisory_none", "No traffic advisories reported in our records."))
 
-        # 4. Mandatory caveat statement
+        # 5. Mandatory caveat statement
         sentences.append(msgs.get("caveat_historical", "This is from an older timetable and may have changed."))
 
-        # 5. Follow up question if alternatives exist
+        # 6. Optional Train / Metro alternative notice
+        if train_metro_alternative:
+            alt_text = train_metro_alternative.get("text_ta") if lang == "ta" else train_metro_alternative.get("text_en")
+            if alt_text:
+                sentences.append(alt_text)
+
+        # 7. Follow up question if alternatives exist
         follow_up = None
         if len(journey_result.options) > 1:
             follow_up = msgs.get("follow_up_next", "Would you like to hear the next route option?")
@@ -125,3 +142,4 @@ class SpeechFormatter:
             "speech_text": full_speech,
             "follow_up_question": follow_up,
         }
+

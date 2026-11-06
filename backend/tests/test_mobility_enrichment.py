@@ -83,3 +83,23 @@ def test_advisories_workflow(tmp_path: Path):
         stop_names=["Porur Bus Stand"], route_numbers=["54"], current_iso_time="2026-12-01T00:00:00Z"
     )
     assert len(expired_matches) == 0
+
+
+def test_fare_bus_with_distance():
+    enricher = FareEnricher(metro_fares_file="nonexistent.csv")
+    fare = enricher.get_fare(mode="bus", from_stop_id="MTC:5738", to_stop_id="MTC:1465", distance_m=7000.0)
+    assert fare.status == "AVAILABLE"
+    assert fare.amount_inr == 8.0
+    assert "S_MTC_FARES" in fare.source_id
+
+
+def test_telemetry_arrival_estimate():
+    from backend.app.mobility.enrich.telemetry import ScheduledTelemetryProvider
+    telemetry = ScheduledTelemetryProvider(db_path="data/build/chennai.sqlite")
+    res = telemetry.get_arrival_estimate("MTC:5738", ["88R", "49F"], current_time_str="09:10", stop_name="Porur", stop_name_ta="போரூர்")
+    assert res["available"] is True
+    assert res["route_number"] == "49F"
+    assert res["eta_minutes"] == 7
+    assert "09:17" in res["text_en"]
+
+

@@ -237,3 +237,4 @@ class StopResolver:
             speech_prompt_en=f"I found multiple locations for '{query}'. {q_en}",
             speech_prompt_ta=f"'{query}' என்பதற்கு பல நிறுத்தங்கள் உள்ளன. {q_ta}",
         )
+

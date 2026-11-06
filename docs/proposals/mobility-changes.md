@@ -15,3 +15,4 @@ from backend.app.mobility.router import router as mobility_router
 # In create_application():
 app.include_router(mobility_router)
 ```
+
