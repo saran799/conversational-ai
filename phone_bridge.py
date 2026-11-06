@@ -684,11 +684,44 @@ def find_vac_capture_input() -> Optional[Tuple[int, int]]:
     for pref_hostapi in (0, 2, 1):  # MME, WASAPI, DirectSound
         for i, dev in enumerate(devices):
             name = dev["name"].lower()
-            is_cable = ("virtual audio cable" in name) or ("line 1" in name)
+            # Inbound capture is the FIRST cable line only; keep Line 2+ free for the outbound path.
+            is_cable = (("virtual audio cable" in name) or ("line 1" in name)) and ("line 2" not in name) and ("line 3" not in name)
             if is_cable and dev["max_input_channels"] > 0 and int(dev.get("hostapi", 0)) == pref_hostapi:
                 ok, sr = _can_open_input_device(i)
                 if ok:
                     return i, sr
+    return None
+
+
+def find_outbound_cable_output(exclude_name: str = "") -> Optional[int]:
+    """Finds a SECOND virtual-cable OUTPUT endpoint to inject the AI voice into for Phone Link's
+    call microphone, so the remote caller hears the AI. Must be a DIFFERENT cable/line than the
+    inbound capture (exclude_name) and openable via PortAudio. Returns device index or None.
+    """
+    devices = sd.query_devices()
+    excl = exclude_name.lower()
+    m = re.search(r"line\s*(\d+)", excl)
+    excl_line = m.group(1) if m else None
+    for pref_hostapi in (0, 2, 1):  # MME, WASAPI, DirectSound
+        for i, dev in enumerate(devices):
+            name = dev["name"].lower()
+            is_cable = (
+                ("virtual audio cable" in name)
+                or ("voicemeeter" in name and "input" in name)
+                or ("cable input" in name)
+            )
+            if not is_cable or dev["max_output_channels"] <= 0 or int(dev.get("hostapi", 0)) != pref_hostapi:
+                continue
+            lt = re.search(r"line\s*(\d+)", name)
+            lt = lt.group(1) if lt else None
+            # Skip the exact cable line already used for inbound capture (would mix AI into the mic path).
+            if excl_line and lt == excl_line:
+                continue
+            if name == excl:
+                continue
+            ok, _ = _can_open_output_device(i)
+            if ok:
+                return i
     return None
 
 
@@ -703,12 +736,20 @@ def main():
     parser.add_argument("--in-device", type=int, default=None, help="Override input audio device index")
     parser.add_argument("--out-device", type=int, default=None, help="Override output audio device index")
     parser.add_argument(
+        "--out-cable",
+        type=int,
+        default=None,
+        help="Device index of the SECOND virtual cable OUTPUT used to send the AI voice back into the "
+        "Phone Link call (set Phone Link's microphone to this cable). Auto-detected in --phonelink mode "
+        "when a second cable (e.g. 'Line 2 (Virtual Audio Cable)') exists.",
+    )
+    parser.add_argument(
         "--phonelink",
         action="store_true",
         help="Microsoft Phone Link mode: capture the remote caller from the Virtual Audio Cable "
-        "recording endpoint (set Phone Link's OUTPUT/speaker device to 'Line 1 (Virtual Audio Cable)'). "
-        "The AI reply plays on the room speakers only (it is NOT injected into the same cable, which "
-        "would feed back into recognition).",
+        "recording endpoint (set Phone Link's OUTPUT/speaker to 'Line 1 (Virtual Audio Cable)') and, "
+        "when a SECOND cable exists, inject the AI reply into it so the caller hears it (set Phone "
+        "Link's MICROPHONE to that second cable, e.g. 'Line 2 (Virtual Audio Cable)').",
     )
     args = parser.parse_args()
 
@@ -720,14 +761,29 @@ def main():
         if vac_cap is not None:
             in_idx, in_sr = vac_cap
             in_name = sd.query_devices(in_idx)["name"]
-            # Capturing the cable means we must NOT also write the AI voice into that same cable,
-            # or the reply would loop straight back into the recognizer.
-            vac_out_idx = None
             print(f"[📞 Phone Link mode] Capturing caller from cable input [{in_idx}] {in_name}")
             print("     -> In Phone Link, set the call OUTPUT/speaker device to 'Line 1 (Virtual Audio Cable)'.")
         else:
             print("[⚠️ --phonelink] No openable Virtual Audio Cable recording endpoint found; "
                   "falling back to the auto-selected microphone.")
+
+        # OUTBOUND: inject the AI voice into a SECOND, different cable so the remote caller hears it.
+        # (It must NOT be the same cable we capture, or the reply would loop back into recognition.)
+        if args.out_cable is not None:
+            vac_out_idx = args.out_cable
+        else:
+            vac_out_idx = find_outbound_cable_output(exclude_name=in_name)
+
+        if vac_out_idx is not None:
+            print(f"[📲 Outbound] AI voice -> caller via [{vac_out_idx}] {sd.query_devices(vac_out_idx)['name']}")
+            print("     -> In Phone Link, set the call MICROPHONE device to that SAME cable "
+                  "(e.g. 'Line 2 (Virtual Audio Cable)').")
+        else:
+            vac_out_idx = None
+            print("[ℹ️ Outbound not wired] No usable SECOND virtual cable found, so the caller will NOT")
+            print("     hear the AI yet (it plays on the room speakers only). To enable it: open the Virtual")
+            print("     Audio Cable Control Panel, set Cables = 2, set Phone Link's MICROPHONE to")
+            print("     'Line 2 (Virtual Audio Cable)', then re-run. Or pass --out-cable <index>.")
 
     if args.in_device is not None:
         in_idx = args.in_device
