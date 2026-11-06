@@ -33,6 +33,7 @@ import asyncio
 import io
 import json
 import re
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -433,6 +434,10 @@ def main():
         out_idx = args.out_device
         out_name = sd.query_devices(out_idx)["name"]
 
+    # Strict speech activation threshold for Phone Link / Virtual Audio Cable
+    SPEECH_TRIGGER_RMS = 0.035
+    SPEECH_TRIGGER_PEAK = 0.080
+
     print("=" * 72)
     print("   📞 CHENNAI MOBILITY AI — PHONE LINK VC ROUTED AGENT (FULL-DUPLEX)   ")
     print("=" * 72)
@@ -441,67 +446,132 @@ def main():
     if monitor_out_idx is not None and monitor_out_idx != out_idx:
         print(f"🔊 Room Monitor OUT (Speakers)                  : [{monitor_out_idx}] {sd.query_devices(monitor_out_idx)['name']}")
     print(f"🧠 Transit AI Endpoint                           : {TRANSIT_SIMULATE_URL}")
+    print(f"🛡️ Idle Line Guard                              : Threshold RMS >= {SPEECH_TRIGGER_RMS} (Silent Line Protected)")
     print("=" * 72)
 
     recognizer = sr.Recognizer()
-    recognizer.dynamic_energy_threshold = True
+    recognizer.dynamic_energy_threshold = False
 
-    # Calibrate ambient noise floor for 0.8s so room hum never false-triggers
-    print("[🔧 Calibrating background noise level for 0.8s...]")
-    ambient_rms = 0.0045
-    try:
-        calib_frames = int(0.8 * in_sr)
-        rec = sd.rec(calib_frames, samplerate=in_sr, channels=1, dtype="float32", device=in_idx)
-        sd.wait()
-        measured = float(np.sqrt(np.mean(np.square(rec))))
-        ambient_rms = max(0.0035, min(0.025, measured * 2.5))
-    except Exception:
-        ambient_rms = 0.0050
-    print(f"[✅ Noise threshold calibrated: {ambient_rms:.4f}]")
-    print("\n🎙️ Ready! Speak into the phone / mic (Press Ctrl+C to stop)...\n")
+    # ================= CALL GATE =================
+    # The agent does NOTHING until you confirm a call has actually been answered.
+    # This prevents the AI from greeting/replying to phantom line noise, echo, or an
+    # idle Phone Link when no call is connected.
+    call_active = threading.Event()
+
+    def call_control_listener():
+        while True:
+            try:
+                input()  # blocks until you press ENTER
+            except (EOFError, KeyboardInterrupt):
+                return
+            if call_active.is_set():
+                call_active.clear()
+                print("\n[📴 Call ENDED — AI is idle. Press ENTER when the next call is answered.]\n")
+            else:
+                call_active.set()
+                print("\n[📞 Call ANSWERED — AI is now LIVE on the line.]\n")
+
+    threading.Thread(target=call_control_listener, daemon=True).start()
+    # =============================================
+
+    print("\n⏳ WAITING FOR A CALL.")
+    print("   ▶ When the linked number ANSWERS the call, press [ENTER] to put the AI on the line.")
+    print("   ⏹ Press [ENTER] again to end the call (AI goes idle), or Ctrl+C to quit.\n")
 
     audio_frames: List[np.ndarray] = []
     is_caller_speaking = False
     is_ai_speaking = False
+    call_greeted = False
+    consecutive_loud_chunks = 0
     silence_start: Optional[float] = None
     utterance_start: Optional[float] = None
     cooldown_until: float = 0.0
 
+    GREETING_TEXT = "வணக்கம்! சென்னை போக்குவரத்து உதவி மையத்திற்கு வரவேற்கிறோம். நீங்கள் எங்கு செல்ல வேண்டும்?"
+
     def audio_callback(indata, frames, time_info, status):
-        nonlocal is_caller_speaking, silence_start, utterance_start
+        nonlocal is_caller_speaking, silence_start, utterance_start, consecutive_loud_chunks
+        # CALL GATE: do nothing at all until a call has been marked answered.
+        if not call_active.is_set():
+            consecutive_loud_chunks = 0
+            return
         # ECHO PREVENTION: Ignore mic input while AI is speaking or in cooldown
         if is_ai_speaking or time.time() < cooldown_until:
+            consecutive_loud_chunks = 0
             return
 
         rms = float(np.sqrt(np.mean(np.square(indata))))
+        peak = float(np.max(np.abs(indata)))
         now = time.time()
 
-        if rms > ambient_rms:
-            if not is_caller_speaking:
-                print("\n[🎙️ Caller speaking...]", end="", flush=True)
-                is_caller_speaking = True
-                utterance_start = now
-            silence_start = None
-            audio_frames.append(indata.copy())
-            if utterance_start and (now - utterance_start) >= MAX_UTTERANCE_SECONDS:
-                is_caller_speaking = False
-        elif is_caller_speaking:
-            audio_frames.append(indata.copy())
-            if silence_start is None:
-                silence_start = now
-            elif (now - silence_start) >= SILENCE_DURATION:
-                is_caller_speaking = False
+        # Strict gate: must be real speech volume, not line flutter or ambient hiss
+        if rms >= SPEECH_TRIGGER_RMS and peak >= SPEECH_TRIGGER_PEAK:
+            consecutive_loud_chunks += 1
+            if consecutive_loud_chunks >= 3:
+                if not is_caller_speaking:
+                    print("\n[🎙️ Caller speaking into call...]", end="", flush=True)
+                    is_caller_speaking = True
+                    utterance_start = now
+                silence_start = None
+                audio_frames.append(indata.copy())
+                if utterance_start and (now - utterance_start) >= MAX_UTTERANCE_SECONDS:
+                    is_caller_speaking = False
+        else:
+            consecutive_loud_chunks = 0
+            if is_caller_speaking:
+                audio_frames.append(indata.copy())
+                if silence_start is None:
+                    silence_start = now
+                elif (now - silence_start) >= SILENCE_DURATION:
+                    is_caller_speaking = False
 
     with sd.InputStream(device=in_idx, channels=1, samplerate=in_sr, dtype="float32", callback=audio_callback):
         while True:
             time.sleep(0.08)
-            min_frames_needed = max(3, int((in_sr * 0.4) / 512))
+
+            # ---- IDLE: no call is on the line -> discard everything, reset per-call state ----
+            if not call_active.is_set():
+                if audio_frames:
+                    audio_frames.clear()
+                is_caller_speaking = False
+                silence_start = None
+                utterance_start = None
+                if call_greeted:
+                    # A call just ended: start the next call completely fresh.
+                    call_greeted = False
+                    session = ConversationSession()
+                continue
+
+            # ---- Call just answered -> greet the caller immediately, once ----
+            if not call_greeted:
+                call_greeted = True
+                audio_frames.clear()
+                print("\n[👋 Greeting the caller...]")
+                is_ai_speaking = True
+                try:
+                    asyncio.run(speak_live(GREETING_TEXT, out_device_idx=out_idx, vac_out_idx=monitor_out_idx))
+                finally:
+                    audio_frames.clear()
+                    cooldown_until = time.time() + POST_SPEECH_COOLDOWN + 0.5
+                    is_ai_speaking = False
+                print("🎙️ Listening for caller's destination / route query...")
+                continue
+
+            # Require at least 1.0s of actual captured speech
+            min_frames_needed = int((in_sr * 1.0) / 512)
             if not is_caller_speaking and len(audio_frames) >= min_frames_needed:
-                print(" [Transcribing...]")
                 captured = np.concatenate(audio_frames, axis=0)
                 audio_frames.clear()
                 utterance_start = None
                 silence_start = None
+
+                # Double check that captured audio has real speech energy
+                cap_rms = float(np.sqrt(np.mean(np.square(captured))))
+                cap_peak = float(np.max(np.abs(captured)))
+                if cap_rms < SPEECH_TRIGGER_RMS or cap_peak < SPEECH_TRIGGER_PEAK:
+                    continue
+
+                print(" [Transcribing caller's question...]")
 
                 # Normalize & Resample to 16kHz PCM WAV in memory
                 pcm_16k = resample_to_16k(captured, in_sr)
