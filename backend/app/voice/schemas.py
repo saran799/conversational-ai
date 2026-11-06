@@ -35,3 +35,54 @@ class VoiceTurnResponse(BaseModel):
     suggested_actions: List[str] = Field(default_factory=list)
     response_audio_url: Optional[str] = None
     response_text: str
+
+
+# Commonized Worker 2 /api/mobility/simulate schemas
+class SimulateStopRef(BaseModel):
+    stop_id: Optional[str] = None
+    name: str
+
+
+class SimulateLeg(BaseModel):
+    mode: str = "bus"
+    route: str
+    from_stop: SimulateStopRef
+    to_stop: SimulateStopRef
+    stops_count: int = 1
+
+
+class SimulateFare(BaseModel):
+    status: str = "UNKNOWN"
+    reason: Optional[str] = None
+    amount_inr: Optional[float] = None
+
+
+class SimulateDistance(BaseModel):
+    value_km: Optional[float] = None
+    basis: Optional[str] = None
+
+
+class SimulateRouteOption(BaseModel):
+    legs: List[SimulateLeg] = Field(default_factory=list)
+    transfers: int = 0
+    ranking_basis: Optional[str] = None
+    fare: Optional[SimulateFare] = None
+    distance: Optional[SimulateDistance] = None
+
+
+class SimulateMobilityRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="Natural language question spoken by the commuter")
+    language: str = Field(default="ta", description="Language code ('ta' for Tamil, 'en' for English)")
+
+
+class SimulateMobilityResponse(BaseModel):
+    status: str = "OK"
+    data_status: str = "unverified"
+    language: str = "ta"
+    speech_text: str
+    follow_up_question: Optional[str] = None
+    options: List[SimulateRouteOption] = Field(default_factory=list)
+    advisories: List[str] = Field(default_factory=list)
+    caveats: List[str] = Field(default_factory=list)
+    session_id: Optional[str] = None
+
