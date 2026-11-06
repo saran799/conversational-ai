@@ -45,6 +45,14 @@ import soundfile as sf
 import speech_recognition as sr
 from scipy.io.wavfile import write
 
+# Windows consoles default to cp1252, which raises UnicodeEncodeError when we print Tamil
+# transcripts/replies. Force UTF-8 so logging never crashes the agent mid-call.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 # ================= NETWORK & AUDIO CONFIGURATION =================
 TRANSIT_LAPTOP_IP = os.environ.get("TRANSIT_LAPTOP_IP", "192.168.137.171")
 TRANSIT_SIMULATE_URL = f"http://{TRANSIT_LAPTOP_IP}:8000/api/mobility/simulate"
@@ -665,6 +673,25 @@ def resample_to_16k(audio_np: np.ndarray, orig_sr: int) -> np.ndarray:
     return np.interp(x_new, x_old, flat).astype(np.float32)
 
 
+def find_vac_capture_input() -> Optional[Tuple[int, int]]:
+    """Finds the Virtual Audio Cable RECORDING endpoint — the device Microsoft Phone Link's
+    call *output* must be routed into so the bridge can hear the remote caller.
+
+    Prefers MME (hostapi 0) then WASAPI/DirectSound for PortAudio reliability. Returns
+    (device_index, samplerate) or None if no openable cable recording endpoint exists.
+    """
+    devices = sd.query_devices()
+    for pref_hostapi in (0, 2, 1):  # MME, WASAPI, DirectSound
+        for i, dev in enumerate(devices):
+            name = dev["name"].lower()
+            is_cable = ("virtual audio cable" in name) or ("line 1" in name)
+            if is_cable and dev["max_input_channels"] > 0 and int(dev.get("hostapi", 0)) == pref_hostapi:
+                ok, sr = _can_open_input_device(i)
+                if ok:
+                    return i, sr
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Bi-Directional Phone Link AI Agent")
     parser.add_argument(
@@ -675,13 +702,39 @@ def main():
     )
     parser.add_argument("--in-device", type=int, default=None, help="Override input audio device index")
     parser.add_argument("--out-device", type=int, default=None, help="Override output audio device index")
+    parser.add_argument(
+        "--phonelink",
+        action="store_true",
+        help="Microsoft Phone Link mode: capture the remote caller from the Virtual Audio Cable "
+        "recording endpoint (set Phone Link's OUTPUT/speaker device to 'Line 1 (Virtual Audio Cable)'). "
+        "The AI reply plays on the room speakers only (it is NOT injected into the same cable, which "
+        "would feed back into recognition).",
+    )
     args = parser.parse_args()
 
     session = ConversationSession()
     in_idx, in_name, in_sr, out_idx, out_name, vac_out_idx = find_safe_phone_audio_devices()
+
+    if args.phonelink and args.in_device is None:
+        vac_cap = find_vac_capture_input()
+        if vac_cap is not None:
+            in_idx, in_sr = vac_cap
+            in_name = sd.query_devices(in_idx)["name"]
+            # Capturing the cable means we must NOT also write the AI voice into that same cable,
+            # or the reply would loop straight back into the recognizer.
+            vac_out_idx = None
+            print(f"[📞 Phone Link mode] Capturing caller from cable input [{in_idx}] {in_name}")
+            print("     -> In Phone Link, set the call OUTPUT/speaker device to 'Line 1 (Virtual Audio Cable)'.")
+        else:
+            print("[⚠️ --phonelink] No openable Virtual Audio Cable recording endpoint found; "
+                  "falling back to the auto-selected microphone.")
+
     if args.in_device is not None:
         in_idx = args.in_device
         in_name = sd.query_devices(in_idx)["name"]
+        ok, detected_sr = _can_open_input_device(in_idx)
+        if ok:
+            in_sr = detected_sr
     if args.out_device is not None:
         out_idx = args.out_device
         out_name = sd.query_devices(out_idx)["name"]
