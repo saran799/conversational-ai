@@ -83,30 +83,9 @@ class CommonizedVoicePayload(BaseModel):
 
 
 def _play_bytes_locally(audio_bytes: bytes) -> None:
-    """Plays MP3 bytes simultaneously to Virtual Audio Cable (Phone Link call mic) AND Room Speakers."""
+    """Plays MP3 bytes directly in memory through pygame mixer."""
     try:
-        import threading
         import pygame
-        from phone_bridge import (
-            _prepare_stereo_44k_for_vac,
-            _write_to_vac_stream,
-            find_safe_phone_audio_devices,
-        )
-
-        # find_safe_phone_audio_devices() applies the safe Phone Link comms-only routing internally
-        # (once per process) — it no longer hijacks the default STT microphone.
-        _, _, _, _, _, vac_out_idx = find_safe_phone_audio_devices()
-
-        vac_thread = None
-        if vac_out_idx is not None:
-            stereo_44k = _prepare_stereo_44k_for_vac(audio_bytes)
-            vac_thread = threading.Thread(
-                target=_write_to_vac_stream,
-                args=(stereo_44k, vac_out_idx),
-                daemon=True,
-            )
-            vac_thread.start()
-
         if not pygame.mixer.get_init():
             pygame.mixer.init()
         stream = io.BytesIO(audio_bytes)
@@ -115,9 +94,6 @@ def _play_bytes_locally(audio_bytes: bytes) -> None:
         while pygame.mixer.music.get_busy():
             pygame.time.Clock().tick(15)
         pygame.mixer.music.unload()
-
-        if vac_thread is not None:
-            vac_thread.join(timeout=5.0)
     except Exception as exc:
         print(f"[VoiceService] Local playback error: {exc}")
 

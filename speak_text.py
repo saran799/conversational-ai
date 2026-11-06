@@ -39,12 +39,36 @@ def detect_language(text: str) -> str:
 
 
 async def play_live_speech(text: str, voice_override: str = None):
-    from phone_bridge import find_safe_phone_audio_devices, speak_live
+    lang = detect_language(text)
+    voice_name = voice_override or VOICES.get(lang, VOICES["ta"])
 
-    # find_safe_phone_audio_devices() applies the safe Phone Link comms-only routing internally
-    # (once per process) — it no longer hijacks the default STT microphone.
-    _, _, _, out_idx, _, vac_out_idx = find_safe_phone_audio_devices()
-    await speak_live(text, out_device_idx=out_idx, vac_out_idx=vac_out_idx)
+    # Fast, natural, conversational cadence
+    rate = "+8%"
+    pitch = "+5Hz" if lang == "ta" else "+0Hz"
+
+    print(f"\n[Voice: {voice_name}] Synthesizing live in memory...")
+    communicate = edge_tts.Communicate(text, voice_name, rate=rate, pitch=pitch)
+
+    # Collect audio stream directly into RAM buffer (zero disk writes)
+    audio_buffer = bytearray()
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            audio_buffer.extend(chunk["data"])
+
+    if not audio_buffer:
+        print("[Warning] Empty audio stream returned.")
+        return
+
+    # Play directly from memory buffer
+    audio_stream = io.BytesIO(audio_buffer)
+    pygame.mixer.music.load(audio_stream)
+    pygame.mixer.music.play()
+
+    print("[Speaking live...]")
+    while pygame.mixer.music.get_busy():
+        pygame.time.Clock().tick(15)
+    pygame.mixer.music.unload()
+    print("[Finished speaking]\n")
 
 
 def main():
